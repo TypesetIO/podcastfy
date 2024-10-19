@@ -9,8 +9,8 @@ dialogue_structure:
   - "Introduction"
   - "Main Content Summary"
   - "Conclusion"
-podcast_name: "PODCASTFY"
-podcast_tagline: "Your Personal Generative AI Podcast"
+podcast_name: "SciSpace Podcast"
+podcast_tagline: "Your Personal Research Podcast"
 output_language: "English"
 engagement_techniques: 
   - "rhetorical questions"

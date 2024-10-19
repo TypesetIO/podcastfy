@@ -6,10 +6,12 @@ from URLs or existing transcript files. It orchestrates the content extraction,
 generation, and text-to-speech conversion processes.
 """
 
+from multiprocessing import Pool
 import os
 import uuid
 import typer
 import yaml
+import time
 from podcastfy.content_parser.content_extractor import ContentExtractor
 from podcastfy.content_generator import ContentGenerator
 from podcastfy.text_to_speech import TextToSpeech
@@ -27,10 +29,14 @@ logger = setup_logger(__name__)
 
 app = typer.Typer()
 
+# Function to split the list of files into chunks
+def chunkify(lst, n):
+    return [lst[i:i + n] for i in range(0, len(lst), n)]
 
 def process_content(
-    urls=None,
+    paths_list=None,
     transcript_file=None,
+    output_path=None,
     tts_model="openai",
     generate_audio=True,
     config=None,
@@ -42,7 +48,7 @@ def process_content(
     Process URLs, a transcript file, or image paths to generate a podcast or transcript.
 
     Args:
-        urls (Optional[List[str]]): A list of URLs to process.
+        paths_list (Optional[List[str]]): A list of paths to process.
         transcript_file (Optional[str]): Path to a transcript file.
         tts_model (str): The TTS model to use ('openai', 'elevenlabs' or 'edge'). Defaults to 'openai'.
         generate_audio (bool): Whether to generate audio or just a transcript. Defaults to True.
@@ -54,6 +60,8 @@ def process_content(
     Returns:
         Optional[str]: Path to the final podcast audio file, or None if only generating a transcript.
     """
+    st = time.time()
+    logger.info(f'paths list: {paths_list}')
     try:
         if config is None:
             config = load_config()
@@ -74,27 +82,53 @@ def process_content(
                 api_key=config.GEMINI_API_KEY, conversation_config=conv_config.to_dict()
             )
 
-            if urls:
-                logger.info(f"Processing {len(urls)} links")
-                content_extractor = ContentExtractor()
-                # Extract content from links
-                contents = [content_extractor.extract_content(link) for link in urls]
-                # Combine all extracted content
-                combined_content = "\n\n".join(contents)
-            else:
-                combined_content = ""  # Empty string if no URLs provided
+            if paths_list:
+                logger.info(f"Processing {len(paths_list)} links")
+                for path in paths_list:
+                
+                    content_extractor = ContentExtractor()
+                    # Extract content from links
+                    combined_content = content_extractor.extract_content(path)
+                    
+                    # Generate Q&A content
+                    random_filename = f"transcript_{uuid.uuid4().hex}.txt"
+                    transcript_filepath = os.path.join(
+                        config.get("output_directories")["transcripts"], random_filename
+                    )
+                    qa_content = content_generator.generate_qa_content(
+                        combined_content,
+                        image_file_paths=image_paths or [],
+                        output_filepath=transcript_filepath,
+                        is_local=is_local,
+                    )
+                    
+                    if generate_audio:
+                        api_key = None
+                        # edge does not require an API key
+                        if tts_model != "edge":
+                            api_key = getattr(config, f"{tts_model.upper()}_API_KEY")
 
-            # Generate Q&A content
-            random_filename = f"transcript_{uuid.uuid4().hex}.txt"
-            transcript_filepath = os.path.join(
-                config.get("output_directories")["transcripts"], random_filename
-            )
-            qa_content = content_generator.generate_qa_content(
-                combined_content,
-                image_file_paths=image_paths or [],
-                output_filepath=transcript_filepath,
-                is_local=is_local,
-            )
+                        text_to_speech = TextToSpeech(model=tts_model, api_key=api_key)
+                        # Convert text to speech using the specified model
+                        pdf_name = path.split('/')[-1]
+                        audio_file_name = pdf_name[:-4] + '.mp3'
+                        random_filename = f"podcast_{uuid.uuid4().hex}.mp3"
+                        audio_file = os.path.join(
+                            output_path, audio_file_name
+                        )
+                        text_to_speech.convert_to_speech(qa_content, audio_file)
+                        logger.info(f"Podcast generated successfully using {tts_model} TTS model")
+                        logger.info(f'Time taken: {time.time()-st} secs')
+                        return audio_file
+                    else:
+                        logger.info(f"Transcript generated successfully: {transcript_filepath}")
+                        return transcript_filepath
+
+                            
+            else:
+                return
+
+            
 
         if generate_audio:
             api_key = None
@@ -110,6 +144,7 @@ def process_content(
             )
             text_to_speech.convert_to_speech(qa_content, audio_file)
             logger.info(f"Podcast generated successfully using {tts_model} TTS model")
+            logger.info(f'Time taken: {time.time()-st} secs')
             return audio_file
         else:
             logger.info(f"Transcript generated successfully: {transcript_filepath}")
@@ -119,10 +154,14 @@ def process_content(
         logger.error(f"An error occurred in the process_content function: {str(e)}")
         raise
 
+def process_files_wrapper(args):
+    return process_content(*args)
 
 @app.command()
 def main(
-    urls: list[str] = typer.Option(None, "--url", "-u", help="URLs to process"),
+    num_processes: int = typer.Option(None, "--num_processes", "-n", help="Number of parallel processes"),
+    path: str = typer.Option(None, "--path", "-p", help="Director to process"),
+    output_path: str = typer.Option(None, '--op_path', '-op', help="output_directory"),
     file: typer.FileText = typer.Option(
         None, "--file", "-f", help="File containing URLs, one per line"
     ),
@@ -186,24 +225,24 @@ def main(
                 is_local=is_local,
             )
         else:
-            urls_list = urls or []
-            if file:
-                urls_list.extend([line.strip() for line in file if line.strip()])
+            all_files = [os.path.join(path, file) for file in os.listdir(path)]
+    
+            if not all_files:
+                print("No files found in the directory.")
+                return
+            
+            # Determine the chunk size (roughly equal-sized chunks for each process)
+            chunk_size = len(all_files) // num_processes
 
-            if not urls_list and not image_paths:
-                raise typer.BadParameter(
-                    "No input provided. Use --url to specify URLs, --file to specify a file containing URLs, --transcript for a transcript file, or --image for image files."
-                )
+            # Split the files into chunks
+            file_chunks = chunkify(all_files, chunk_size)
+            logger.info(f'File chunks: {file_chunks}')
+            arguments = [(chunk, None, output_path, tts_model, True, config, conversation_config, image_paths, is_local) for chunk in file_chunks]
 
-            final_output = process_content(
-                urls=urls_list,
-                tts_model=tts_model,
-                generate_audio=not transcript_only,
-                config=config,
-                conversation_config=conversation_config,
-                image_paths=image_paths,
-                is_local=is_local,
-            )
+            # Create a multiprocessing Pool
+            with Pool(processes=num_processes) as pool:
+                # Map each chunk to the process_files function to run in parallel
+                pool.map(process_files_wrapper, arguments)
 
         if transcript_only:
             typer.echo(f"Transcript generated successfully: {final_output}")
@@ -222,7 +261,7 @@ if __name__ == "__main__":
 
 
 def generate_podcast(
-    urls: Optional[List[str]] = None,
+    paths: Optional[List[str]] = None,
     url_file: Optional[str] = None,
     transcript_file: Optional[str] = None,
     tts_model: Optional[str] = None,
@@ -309,18 +348,18 @@ def generate_podcast(
                 is_local=is_local,
             )
         else:
-            urls_list = urls or []
+            paths_list = paths or []
             if url_file:
                 with open(url_file, "r") as file:
-                    urls_list.extend([line.strip() for line in file if line.strip()])
+                    paths_list.extend([line.strip() for line in file if line.strip()])
 
-            if not urls_list and not image_paths:
+            if not paths_list and not image_paths:
                 raise ValueError(
                     "No input provided. Please provide either 'urls', 'url_file', 'transcript_file', or 'image_paths'."
                 )
 
             return process_content(
-                urls=urls_list,
+                paths_list=paths_list,
                 tts_model=tts_model,
                 generate_audio=not transcript_only,
                 config=default_config,

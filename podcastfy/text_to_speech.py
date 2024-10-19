@@ -8,6 +8,8 @@ including cleaning of input text and merging of audio files.
 
 import logging
 import asyncio
+import random
+import uuid
 import edge_tts
 from elevenlabs import client as elevenlabs_client
 from podcastfy.utils.config import load_config
@@ -106,7 +108,10 @@ class TextToSpeech:
 			self.__convert_to_speech_edge(cleaned_text, output_file)
 
 	def __convert_to_speech_elevenlabs(self, text: str, output_file: str) -> None:
-		try:
+		try:		
+			random_folder_name = str(uuid.uuid4())
+			audio_dir = os.path.join(self.temp_audio_dir, random_folder_name)
+			os.makedirs(audio_dir, exist_ok=True)
 			qa_pairs = self.split_qa(text)
 			audio_files = []
 			counter = 0
@@ -125,7 +130,8 @@ class TextToSpeech:
 				# Save question and answer audio chunks
 				for audio in [question_audio, answer_audio]:
 					counter += 1
-					file_name = f"{self.temp_audio_dir}{counter}.{self.audio_format}"
+					file_name = os.path.join(audio_dir, f'{counter}.{self.audio_format}')
+					# file_name = f"{audio_dir}{counter}.{self.audio_format}"
 					with open(file_name, "wb") as out:
 						for chunk in audio:
 							if chunk:
@@ -133,7 +139,7 @@ class TextToSpeech:
 					audio_files.append(file_name)
 
 			# Merge all audio files and save the result
-			self.__merge_audio_files(self.temp_audio_dir, output_file)
+			self.__merge_audio_files(audio_dir, output_file)
 
 			# Clean up individual audio files
 			for file in audio_files:
