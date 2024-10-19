@@ -61,7 +61,6 @@ def process_content(
         Optional[str]: Path to the final podcast audio file, or None if only generating a transcript.
     """
     st = time.time()
-    logger.info(f'paths list: {paths_list}')
     try:
         if config is None:
             config = load_config()
@@ -236,7 +235,6 @@ def main(
 
             # Split the files into chunks
             file_chunks = chunkify(all_files, chunk_size)
-            logger.info(f'File chunks: {file_chunks}')
             arguments = [(chunk, None, output_path, tts_model, True, config, conversation_config, image_paths, is_local) for chunk in file_chunks]
 
             # Create a multiprocessing Pool
