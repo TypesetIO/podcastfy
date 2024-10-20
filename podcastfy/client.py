@@ -93,6 +93,7 @@ def process_content(
                         output_path, audio_file_name
                     )
                     if os.path.exists(audio_file):
+                        logger.info(f'Skipping existing file {audio_file}')
                         continue
                     
                     content_extractor = ContentExtractor()
