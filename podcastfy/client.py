@@ -84,23 +84,24 @@ def process_content(
             if paths_list:
                 logger.info(f"Processing {len(paths_list)} links")
                 for path in paths_list:
-                
+                    
                     content_extractor = ContentExtractor()
                     # Extract content from links
                     combined_content = content_extractor.extract_content(path)
-                    
                     # Generate Q&A content
                     random_filename = f"transcript_{uuid.uuid4().hex}.txt"
                     transcript_filepath = os.path.join(
                         config.get("output_directories")["transcripts"], random_filename
                     )
+                    st = time.time()
                     qa_content = content_generator.generate_qa_content(
                         combined_content,
                         image_file_paths=image_paths or [],
                         output_filepath=transcript_filepath,
                         is_local=is_local,
                     )
-                    
+                    tt = time.time()
+                    logger.info(f'Time for transcript: {tt-st} secs')
                     if generate_audio:
                         api_key = None
                         # edge does not require an API key
@@ -116,7 +117,9 @@ def process_content(
                             output_path, audio_file_name
                         )
                         text_to_speech.convert_to_speech(qa_content, audio_file)
+                        tts_t = time.time()
                         logger.info(f"Podcast generated successfully using {tts_model} TTS model")
+                        logger.info(f'Time for tts: {tts_t-tt} secs')
                         logger.info(f'Time taken: {time.time()-st} secs')
                         return audio_file
                     else:
