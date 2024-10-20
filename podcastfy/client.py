@@ -85,6 +85,16 @@ def process_content(
                 logger.info(f"Processing {len(paths_list)} links")
                 for path in paths_list:
                     
+                    # check if audio path exists
+                    pdf_name = path.split('/')[-1]
+                    audio_file_name = pdf_name[:-4] + '.mp3'
+                    # random_filename = f"podcast_{uuid.uuid4().hex}.mp3"
+                    audio_file = os.path.join(
+                        output_path, audio_file_name
+                    )
+                    if os.path.exists(audio_file):
+                        continue
+                    
                     content_extractor = ContentExtractor()
                     # Extract content from links
                     combined_content = content_extractor.extract_content(path)
@@ -112,7 +122,7 @@ def process_content(
                         # Convert text to speech using the specified model
                         pdf_name = path.split('/')[-1]
                         audio_file_name = pdf_name[:-4] + '.mp3'
-                        random_filename = f"podcast_{uuid.uuid4().hex}.mp3"
+                        # random_filename = f"podcast_{uuid.uuid4().hex}.mp3"
                         audio_file = os.path.join(
                             output_path, audio_file_name
                         )
@@ -121,36 +131,11 @@ def process_content(
                         logger.info(f"Podcast generated successfully using {tts_model} TTS model")
                         logger.info(f'Time for tts: {tts_t-tt} secs')
                         logger.info(f'Time taken: {time.time()-st} secs')
-                        return audio_file
                     else:
                         logger.info(f"Transcript generated successfully: {transcript_filepath}")
-                        return transcript_filepath
-
                             
             else:
                 return
-
-            
-
-        if generate_audio:
-            api_key = None
-            # edge does not require an API key
-            if tts_model != "edge":
-                api_key = getattr(config, f"{tts_model.upper()}_API_KEY")
-
-            text_to_speech = TextToSpeech(model=tts_model, api_key=api_key)
-            # Convert text to speech using the specified model
-            random_filename = f"podcast_{uuid.uuid4().hex}.mp3"
-            audio_file = os.path.join(
-                config.get("output_directories")["audio"], random_filename
-            )
-            text_to_speech.convert_to_speech(qa_content, audio_file)
-            logger.info(f"Podcast generated successfully using {tts_model} TTS model")
-            logger.info(f'Time taken: {time.time()-st} secs')
-            return audio_file
-        else:
-            logger.info(f"Transcript generated successfully: {transcript_filepath}")
-            return transcript_filepath
 
     except Exception as e:
         logger.error(f"An error occurred in the process_content function: {str(e)}")
@@ -227,7 +212,8 @@ def main(
                 is_local=is_local,
             )
         else:
-            all_files = [os.path.join(path, file) for file in os.listdir(path)]
+            max_file_count = 2000
+            all_files = [os.path.join(path, file) for file in os.listdir(path)][:max_file_count]
     
             if not all_files:
                 print("No files found in the directory.")
