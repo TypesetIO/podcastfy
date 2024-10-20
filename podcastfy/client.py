@@ -213,7 +213,7 @@ def main(
                 is_local=is_local,
             )
         else:
-            max_file_count = 2000
+            max_file_count = 4000
             all_files = [os.path.join(path, file) for file in os.listdir(path)][:max_file_count]
     
             if not all_files:
